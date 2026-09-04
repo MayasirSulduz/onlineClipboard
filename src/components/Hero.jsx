@@ -1,9 +1,43 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+const facts = [
+    { label: "Did you know?", text: "The first computer mouse was made of wood." },
+    { label: "Tiny brain snack", text: "Bananas are berries, but strawberries technically are not." },
+    { label: "Useful today", text: "Press Ctrl + Shift + T to reopen a closed browser tab." },
+    { label: "Wait, really?", text: "Octopuses have three hearts." },
+    { label: "Internet wisdom", text: "A memorable passphrase can be easier to use than random characters." },
+    { label: "Guess first", text: "France has the most time zones when its overseas territories are included." },
+    { label: "Word corner", text: "Queue is pronounced the same even if its last four letters are removed." },
+    { label: "Small science", text: "Hot water can sometimes freeze faster than cold water. This is called the Mpemba effect." },
+];
 
 function Hero() {
     const [active, setActive] = useState(null);
     const [content, setContent] = useState("");
+    const [retrieveCode, setRetrieveCode] = useState("");
+    // const [factIndex, setFactIndex] = useState(0);
+    // const [isFactPaused, setIsFactPaused] = useState(false);
     const [step, setStep] = useState("typing"); // typing | choice | success
+
+    // useEffect(() => {
+    //     if (isFactPaused) {
+    //         return undefined;
+    //     }
+
+    //     const rotation = setInterval(() => {
+    //         setFactIndex((currentIndex) => (currentIndex + 1) % facts.length);
+    //     }, 5000);
+
+    //     return () => clearInterval(rotation);
+    // }, [isFactPaused]);
+
+    // const showPreviousFact = () => {
+    //     setFactIndex((currentIndex) => (currentIndex - 1 + facts.length) % facts.length);
+    // };
+
+    // const showNextFact = () => {
+    //     setFactIndex((currentIndex) => (currentIndex + 1) % facts.length);
+    // };
 
     // Handle Send
     const handleSend = () => {
@@ -14,6 +48,14 @@ function Hero() {
         setStep("choice");
     };
 
+    const handleRetrieve = () => {
+        if (!retrieveCode.trim()) {
+            alert("Please enter a code to retrieve content");
+            return;
+        }
+        alert("Retrieval is not available yet");
+    };
+
     // Handle Option Click
     const handleOptionClick = (type) => {
         console.log("Selected:", type);
@@ -21,25 +63,30 @@ function Hero() {
     };
 
     return (
-        <div className="h-screen w-full bg-hero bg-cover bg-center flex flex-col items-center justify-center">
+        <main className="hero-page">
 
-            <h1 className="mt-4 text-white text-5xl font-bold text-center">
-                Welcome to My Online Clipboard
-            </h1>
+            <div className="hero-copy">
+                <span className="eyebrow">A tiny tool for big transfers</span>
+                <h1 className="hero-title">
+                Move text between your devices
+                </h1>
+                <p className="hero-subtitle">Paste it here. Pick it up wherever you need it.</p>
+            </div>
 
-            <div className="m-4 w-[90vw] h-[80vh] bg-white rounded-lg shadow-md flex overflow-hidden">
+            <div className="clipboard-card">
 
                 {/* SHARE */}
                 <div
                     onClick={() => setActive("share")}
                     className={`flex flex-col items-center cursor-pointer transition-all duration-500
                         ${active === "share" ? "w-[70%]" : active === "retrieve" ? "w-[30%]" : "w-1/2"}
-                        bg-blue-100 p-5`}
+                        panel panel-share`}
                 >
-                    <h1 className="text-2xl font-bold">Share</h1>
+                    <div className="panel-icon">Share</div>
+                    {/* <h2 className="panel-title">Share</h2> */}
 
-                    <p className="text-lg mt-2">
-                        Share your clipboard content with others
+                    <p className="panel-description">
+                        Paste content to create a share
                     </p>
 
                     {/* STEP: typing */}
@@ -49,13 +96,13 @@ function Hero() {
                                 value={content}
                                 onChange={(e) => setContent(e.target.value)}
                                 placeholder="Paste your content here..."
-                                className="w-full h-full mt-4 p-4 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400"
+                                className="panel-input w-full min-h-48 flex-1 mt-4 p-4 focus:outline-none"
 
                             />
 
                             <button
                                 onClick={handleSend}
-                                className="mt-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-blue-600 transition"
+                                className="panel-button button-share mt-4 px-4 py-2"
                             >
                                 Send
                             </button>
@@ -64,17 +111,17 @@ function Hero() {
 
                     {/* STEP: choice */}
                     {step === "choice" && (
-                        <div className="mt-6 flex flex-col gap-4 w-full items-center">
+                        <div className="choice-list mt-6 flex flex-col gap-4 w-full items-center">
                             <button
                                 onClick={() => handleOptionClick("temporary")}
-                                className="w-1/2 px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                                className="panel-button button-temporary w-1/2 px-4 py-2"
                             >
                                 Temporary Share
                             </button>
 
                             <button
                                 onClick={() => handleOptionClick("permanent")}
-                                className="w-1/2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                                className="panel-button button-permanent w-1/2 px-4 py-2"
                             >
                                 Permanent Save
                             </button>
@@ -83,8 +130,8 @@ function Hero() {
 
                     {/* STEP: success */}
                     {step === "success" && (
-                        <div className="mt-6 text-green-700 font-semibold text-lg">
-                            ✅ Content shared successfully!
+                        <div className="success-message mt-6">
+                            Content shared successfully!
                         </div>
                     )}
                 </div>
@@ -92,29 +139,43 @@ function Hero() {
                 {/* RETRIEVE */}
                 <div
                     onClick={() => setActive("retrieve")}
-                    className={`flex p-5 flex-col items-center cursor-pointer transition-all duration-500
+                    className={`flex p-5 flex-col items-center cursor-pointer transition-all duration-500 panel
                         ${active === "retrieve" ? "w-[70%]" : active === "share" ? "w-[30%]" : "w-1/2"}
-                        bg-green-200`}
+                        panel-retrieve`}
                 >
-                    <h1 className="text-2xl font-bold">Retrieve</h1>
+                    <div className="panel-icon">Retrieve</div>
+                    {/* <h2 className="panel-title">Retrieve</h2> */}
 
-                    <p className="text-lg mt-2">
-                        Retrieve clipboard content from others
+                    <p className="panel-description">
+                        Retrieve shared content
                     </p>
 
                     <textarea
-                        placeholder="Enter code to retrieve content..."
-                        className="w-full h-full mt-4 p-4 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={retrieveCode}
+                        onChange={(e) => setRetrieveCode(e.target.value)}
+                        placeholder="Enter a share code..."
+                        className="panel-input w-full min-h-48 flex-1 mt-4 p-4 focus:outline-none"
                     />
                     <button
-                        onClick={handleSend}
-                        className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-green-900 transition">
+                        onClick={handleRetrieve}
+                        className="panel-button button-retrieve mt-4 px-4 py-2">
                         Retrieve
                     </button>
                 </div>
 
             </div>
-        </div>
+            {/* <section className="fact-card" aria-live="polite">
+                <span className="fact-label">{facts[factIndex].label}</span>
+                <p>{facts[factIndex].text}</p>
+                <div className="fact-controls">
+                    <button type="button" onClick={showPreviousFact} aria-label="Show previous fact" title="Previous fact">&#8592;</button>
+                    <button type="button" onClick={() => setIsFactPaused((paused) => !paused)} aria-label={isFactPaused ? "Resume facts" : "Pause facts"} title={isFactPaused ? "Resume facts" : "Pause facts"}>
+                        {isFactPaused ? "\u25B6" : "\u23F8"}
+                    </button>
+                    <button type="button" onClick={showNextFact} aria-label="Show next fact" title="Next fact">&#8594;</button>
+                </div>
+            </section> */}
+        </main>
     );
 }
 
