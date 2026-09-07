@@ -151,62 +151,6 @@
 .button-temporary { background: #f2b84b; }
 .button-permanent { background: #8ed5c5; }
 .success-message { color: #25705e; font-weight: 900; }
-.privacy-note { margin-top: 20px; font-size: 0.86rem; }
-
-.fact-card {
-  display: grid;
-  width: min(760px, 94vw);
-  grid-template-columns: auto 1fr auto;
-  gap: 14px;
-  align-items: center;
-  margin-top: 20px;
-  padding: 12px 18px;
-  border: 3px solid #24324a;
-  border-radius: 18px;
-  background: #fffdf9;
-  box-shadow: 5px 5px 0 #24324a;
-  animation: pop-in 500ms 200ms ease-out both;
-}
-
-.fact-label {
-  color: #e45b57;
-  font-size: 0.78rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.fact-card p {
-  margin: 0;
-  color: #24324a;
-  font-size: 0.92rem;
-  font-weight: 800;
-}
-
-.fact-controls {
-  display: flex;
-  gap: 5px;
-}
-
-.fact-controls button {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  place-items: center;
-  border: 2px solid #24324a;
-  border-radius: 9px;
-  background: #f2b84b;
-  color: #24324a;
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
-.fact-controls button:hover {
-  background: #f28482;
-}
-
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
@@ -219,9 +163,6 @@
   .clipboard-card { width: 100%; min-height: 680px; flex: none; flex-direction: column; box-shadow: 6px 7px 0 #24324a; }
   .panel, .panel-share, .panel-retrieve { width: 100%; min-height: 330px; padding: 24px; }
   .panel-input { min-height: 150px; }
-  .fact-card { width: 100%; grid-template-columns: 1fr auto; gap: 8px 10px; margin-top: 16px; }
-  .fact-card p { grid-column: 1 / -1; grid-row: 2; }
-  .fact-controls { grid-column: 2; grid-row: 1; }
 }
 /* .counter {
   font-size: 16px;

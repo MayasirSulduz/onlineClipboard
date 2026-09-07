@@ -1,43 +1,10 @@
-import { useEffect, useState } from "react";
-
-const facts = [
-    { label: "Did you know?", text: "The first computer mouse was made of wood." },
-    { label: "Tiny brain snack", text: "Bananas are berries, but strawberries technically are not." },
-    { label: "Useful today", text: "Press Ctrl + Shift + T to reopen a closed browser tab." },
-    { label: "Wait, really?", text: "Octopuses have three hearts." },
-    { label: "Internet wisdom", text: "A memorable passphrase can be easier to use than random characters." },
-    { label: "Guess first", text: "France has the most time zones when its overseas territories are included." },
-    { label: "Word corner", text: "Queue is pronounced the same even if its last four letters are removed." },
-    { label: "Small science", text: "Hot water can sometimes freeze faster than cold water. This is called the Mpemba effect." },
-];
+import { useState } from "react";
 
 function Hero() {
     const [active, setActive] = useState(null);
     const [content, setContent] = useState("");
     const [retrieveCode, setRetrieveCode] = useState("");
-    // const [factIndex, setFactIndex] = useState(0);
-    // const [isFactPaused, setIsFactPaused] = useState(false);
     const [step, setStep] = useState("typing"); // typing | choice | success
-
-    // useEffect(() => {
-    //     if (isFactPaused) {
-    //         return undefined;
-    //     }
-
-    //     const rotation = setInterval(() => {
-    //         setFactIndex((currentIndex) => (currentIndex + 1) % facts.length);
-    //     }, 5000);
-
-    //     return () => clearInterval(rotation);
-    // }, [isFactPaused]);
-
-    // const showPreviousFact = () => {
-    //     setFactIndex((currentIndex) => (currentIndex - 1 + facts.length) % facts.length);
-    // };
-
-    // const showNextFact = () => {
-    //     setFactIndex((currentIndex) => (currentIndex + 1) % facts.length);
-    // };
 
     // Handle Send
     const handleSend = () => {
@@ -164,17 +131,6 @@ function Hero() {
                 </div>
 
             </div>
-            {/* <section className="fact-card" aria-live="polite">
-                <span className="fact-label">{facts[factIndex].label}</span>
-                <p>{facts[factIndex].text}</p>
-                <div className="fact-controls">
-                    <button type="button" onClick={showPreviousFact} aria-label="Show previous fact" title="Previous fact">&#8592;</button>
-                    <button type="button" onClick={() => setIsFactPaused((paused) => !paused)} aria-label={isFactPaused ? "Resume facts" : "Pause facts"} title={isFactPaused ? "Resume facts" : "Pause facts"}>
-                        {isFactPaused ? "\u25B6" : "\u23F8"}
-                    </button>
-                    <button type="button" onClick={showNextFact} aria-label="Show next fact" title="Next fact">&#8594;</button>
-                </div>
-            </section> */}
         </main>
     );
 }
