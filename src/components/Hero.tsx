@@ -1,10 +1,15 @@
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
+
+type SaveType = "temporary" | "permanent";
+type ShareStep = "typing" | "choice" | "success";
 
 function Hero() {
-    const [active, setActive] = useState(null);
+    const [active, setActive] = useState<"share" | "retrieve" | null>(null);
     const [content, setContent] = useState("");
     const [retrieveCode, setRetrieveCode] = useState("");
-    const [step, setStep] = useState("typing"); // typing | choice | success
+    const [step, setStep] = useState<ShareStep>("typing");
+    const [requestError, setRequestError] = useState("");
+    const [isSending, setIsSending] = useState(false);
 
     // Handle Send
     const handleSend = () => {
@@ -24,9 +29,29 @@ function Hero() {
     };
 
     // Handle Option Click
-    const handleOptionClick = (type) => {
-        console.log("Selected:", type);
-        setStep("success");
+    const handleOptionClick = async (type: SaveType) => {
+        setRequestError("");
+        setIsSending(true);
+
+        try {
+            const response = await fetch("http://localhost:5000/api/messages", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: content, type }),
+            });
+
+            const result: { success?: boolean; error?: string } = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || "The message could not be sent");
+            }
+
+            setStep("success");
+        } catch (error) {
+            setRequestError(error instanceof Error ? error.message : "The message could not be sent");
+        } finally {
+            setIsSending(false);
+        }
     };
 
     return (
@@ -61,7 +86,7 @@ function Hero() {
                         <>
                             <textarea
                                 value={content}
-                                onChange={(e) => setContent(e.target.value)}
+                                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setContent(e.target.value)}
                                 placeholder="Paste your content here..."
                                 className="panel-input w-full min-h-48 flex-1 mt-4 p-4 focus:outline-none"
 
@@ -81,6 +106,7 @@ function Hero() {
                         <div className="choice-list mt-6 flex flex-col gap-4 w-full items-center">
                             <button
                                 onClick={() => handleOptionClick("temporary")}
+                                disabled={isSending}
                                 className="panel-button button-temporary w-1/2 px-4 py-2"
                             >
                                 Temporary Share
@@ -88,6 +114,7 @@ function Hero() {
 
                             <button
                                 onClick={() => handleOptionClick("permanent")}
+                                disabled={isSending}
                                 className="panel-button button-permanent w-1/2 px-4 py-2"
                             >
                                 Permanent Save
@@ -98,9 +125,11 @@ function Hero() {
                     {/* STEP: success */}
                     {step === "success" && (
                         <div className="success-message mt-6">
-                            Content shared successfully!
+                            Message received by the server!
                         </div>
                     )}
+
+                    {requestError && <div className="request-error mt-4">{requestError}</div>}
                 </div>
 
                 {/* RETRIEVE */}
@@ -119,7 +148,7 @@ function Hero() {
 
                     <textarea
                         value={retrieveCode}
-                        onChange={(e) => setRetrieveCode(e.target.value)}
+                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setRetrieveCode(e.target.value)}
                         placeholder="Enter a share code..."
                         className="panel-input w-full min-h-48 flex-1 mt-4 p-4 focus:outline-none"
                     />

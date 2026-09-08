@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n CLIENT,SERVER -c blue,green \"vite\" \"tsx server/server.ts\"",
+    "server": "tsx server/server.ts",
     "build": "vite build",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -21,13 +23,20 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.5.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^8.2.2",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
     "vite": "^8.0.1"
   }
 }
