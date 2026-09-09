@@ -8,8 +8,14 @@ function Hero() {
     const [content, setContent] = useState("");
     const [retrieveCode, setRetrieveCode] = useState("");
     const [step, setStep] = useState<ShareStep>("typing");
+    const [shareCode, setShareCode] = useState("");
     const [requestError, setRequestError] = useState("");
     const [isSending, setIsSending] = useState(false);
+
+    const [retrievedContent, setRetrievedContent] = useState("");
+    const [retrievedType, setRetrievedType] = useState("");
+    const [retrieveError, setRetrieveError] = useState("");
+    const [isRetrieving, setIsRetrieving] = useState(false);
 
     // Handle Send
     const handleSend = () => {
@@ -20,12 +26,30 @@ function Hero() {
         setStep("choice");
     };
 
-    const handleRetrieve = () => {
+    const handleRetrieve = async () => {
         if (!retrieveCode.trim()) {
             alert("Please enter a code to retrieve content");
             return;
         }
-        alert("Retrieval is not available yet");
+        setRetrieveError("");
+        setRetrievedContent("");
+        setIsRetrieving(true);
+
+        try {
+            const response = await fetch(`http://localhost:5000/api/messages/${encodeURIComponent(retrieveCode.trim())}`);
+            const result: { success?: boolean; error?: string; data?: { message: string; type: string; created_at: string } } = await response.json();
+
+            if (!response.ok || !result.data) {
+                throw new Error(result.error || "Message not found");
+            }
+
+            setRetrievedContent(result.data.message);
+            setRetrievedType(result.data.type);
+        } catch (error) {
+            setRetrieveError(error instanceof Error ? error.message : "Failed to retrieve content");
+        } finally {
+            setIsRetrieving(false);
+        }
     };
 
     // Handle Option Click
@@ -40,12 +64,17 @@ function Hero() {
                 body: JSON.stringify({ message: content, type }),
             });
 
-            const result: { success?: boolean; error?: string } = await response.json();
+            const result: { success?: boolean; error?: string; code?: string } = await response.json();
 
             if (!response.ok) {
                 throw new Error(result.error || "The message could not be sent");
             }
 
+            if (!result.code) {
+                throw new Error("The server did not return a share code");
+            }
+
+            setShareCode(result.code);
             setStep("success");
         } catch (error) {
             setRequestError(error instanceof Error ? error.message : "The message could not be sent");
@@ -109,7 +138,7 @@ function Hero() {
                                 disabled={isSending}
                                 className="panel-button button-temporary w-1/2 px-4 py-2"
                             >
-                                Temporary Share
+                                {isSending ? "Saving..." : "Temporary Share"}
                             </button>
 
                             <button
@@ -117,19 +146,22 @@ function Hero() {
                                 disabled={isSending}
                                 className="panel-button button-permanent w-1/2 px-4 py-2"
                             >
-                                Permanent Save
+                                {isSending ? "Saving..." : "Permanent Save"}
                             </button>
                         </div>
                     )}
 
                     {/* STEP: success */}
                     {step === "success" && (
-                        <div className="success-message mt-6">
-                            Message received by the server!
+                        <div className="success-message mt-6 text-center">
+                            <p className="font-semibold text-emerald-400">Message saved successfully!</p>
+                            <p className="text-xl font-mono mt-2 tracking-widest bg-slate-800 py-2 px-4 rounded border border-slate-700 select-all">
+                                {shareCode}
+                            </p>
                         </div>
                     )}
 
-                    {requestError && <div className="request-error mt-4">{requestError}</div>}
+                    {requestError && <div className="request-error mt-4 text-red-400">{requestError}</div>}
                 </div>
 
                 {/* RETRIEVE */}
@@ -140,23 +172,39 @@ function Hero() {
                         panel-retrieve`}
                 >
                     <div className="panel-icon">Retrieve</div>
-                    {/* <h2 className="panel-title">Retrieve</h2> */}
 
                     <p className="panel-description">
                         Retrieve shared content
                     </p>
 
-                    <textarea
+                    <input
+                        type="text"
                         value={retrieveCode}
-                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setRetrieveCode(e.target.value)}
-                        placeholder="Enter a share code..."
-                        className="panel-input w-full min-h-48 flex-1 mt-4 p-4 focus:outline-none"
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setRetrieveCode(e.target.value)}
+                        placeholder="Enter 7-digit code (e.g. 0123456)"
+                        className="panel-input w-full mt-4 p-3 rounded text-center tracking-widest font-mono focus:outline-none"
                     />
+
                     <button
                         onClick={handleRetrieve}
-                        className="panel-button button-retrieve mt-4 px-4 py-2">
-                        Retrieve
+                        disabled={isRetrieving}
+                        className="panel-button button-retrieve mt-4 px-4 py-2"
+                    >
+                        {isRetrieving ? "Retrieving..." : "Retrieve"}
                     </button>
+
+                    {retrievedContent && (
+                        <div className="retrieved-result mt-4 p-4 w-full bg-slate-900 rounded border border-slate-700 text-left">
+                            <div className="text-xs uppercase font-semibold text-emerald-400 mb-1">
+                                {retrievedType} Message
+                            </div>
+                            <div className="whitespace-pre-wrap break-words font-mono text-sm text-slate-200">
+                                {retrievedContent}
+                            </div>
+                        </div>
+                    )}
+
+                    {retrieveError && <div className="request-error mt-4 text-red-400">{retrieveError}</div>}
                 </div>
 
             </div>
