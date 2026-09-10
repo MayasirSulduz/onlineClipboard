@@ -82,6 +82,21 @@ const ensureMessagesTable = async (): Promise<void> => {
     }
 };
 
+const cleanupExpiredMessages = async (): Promise<void> => {
+    try {
+        const result = await queryWithRetry(`
+            DELETE FROM messages
+            WHERE type = 'temporary'
+              AND created_at < NOW() - INTERVAL '30 minutes'
+        `);
+        if (result && typeof result.rowCount === "number" && result.rowCount > 0) {
+            console.log(`[CLEANUP] Deleted ${result.rowCount} expired temporary message(s) older than 30 minutes.`);
+        }
+    } catch (error) {
+        console.error("[CLEANUP] Error during message cleanup:", error);
+    }
+};
+
 const generateUniqueCode = async (maxAttempts = 10): Promise<string> => {
     if (!connectionString) {
         throw new Error("DATABASE_URL is not configured in .env file");
@@ -235,6 +250,9 @@ const startServer = async () => {
     try {
         await testDatabaseConnection();
         await ensureMessagesTable();
+        await cleanupExpiredMessages();
+        // Run cleanup every 1 minute (60,000 ms)
+        setInterval(cleanupExpiredMessages, 60 * 1000);
     } catch (error) {
         console.error("Database setup failed:", error);
     }
