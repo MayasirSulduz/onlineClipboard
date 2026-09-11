@@ -4,6 +4,7 @@ import dns from "node:dns";
 import dotenv from "dotenv";
 import express, { type Request, type Response } from "express";
 import { randomInt, randomUUID } from "node:crypto";
+import os from "node:os";
 import { Pool } from "pg";
 import QRCode from "qrcode";
 
@@ -20,6 +21,18 @@ interface MessageRequestBody {
     message?: unknown;
     type?: unknown;
 }
+
+const getLocalNetworkIp = (): string => {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name] || []) {
+            if (iface.family === "IPv4" && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return "localhost";
+};
 
 const createSevenDigitCode = (): string => randomInt(0, 10_000_000).toString().padStart(7, "0");
 
@@ -194,12 +207,23 @@ app.post(
             console.log("Saved to DB successfully:", { id: newId, code, type: saveType });
 
             const originHeader = req.get("origin") || req.get("referer");
-            let baseUrl = "http://localhost:5173";
-            if (originHeader) {
-                try {
-                    baseUrl = new URL(originHeader).origin;
-                } catch {
-                    baseUrl = originHeader.replace(/\/$/, "");
+            let baseUrl = process.env.CLIENT_URL || "";
+            if (!baseUrl) {
+                const localIp = getLocalNetworkIp();
+                if (originHeader) {
+                    try {
+                        const urlObj = new URL(originHeader);
+                        if (urlObj.hostname === "localhost" || urlObj.hostname === "127.0.0.1") {
+                            if (localIp !== "localhost") {
+                                urlObj.hostname = localIp;
+                            }
+                        }
+                        baseUrl = urlObj.origin;
+                    } catch {
+                        baseUrl = originHeader.replace(/\/$/, "");
+                    }
+                } else {
+                    baseUrl = `http://${localIp}:5173`;
                 }
             }
             const shareUrl = `${baseUrl}/?code=${code}`;
@@ -259,3 +283,5 @@ const startServer = async () => {
 };
 
 startServer();
+
+export default app;

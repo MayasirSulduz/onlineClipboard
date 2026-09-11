@@ -1,8 +1,13 @@
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, type ChangeEvent, type KeyboardEvent } from "react";
 import QRCodeDisplay from "./QRCodeDisplay";
 
 type SaveType = "temporary" | "permanent";
 type ShareStep = "typing" | "choice" | "success";
+
+const getApiBaseUrl = (): string => {
+    const hostname = window.location.hostname || "localhost";
+    return `http://${hostname}:5000`;
+};
 
 function Hero() {
     const [active, setActive] = useState<"share" | "retrieve" | null>(null);
@@ -20,6 +25,7 @@ function Hero() {
 
     const [retrievedContent, setRetrievedContent] = useState("");
     const [retrievedType, setRetrievedType] = useState("");
+    const [retrievedCreatedAt, setRetrievedCreatedAt] = useState<string | null>(null);
     const [retrieveError, setRetrieveError] = useState("");
     const [isRetrieving, setIsRetrieving] = useState(false);
 
@@ -39,18 +45,20 @@ function Hero() {
     const fetchAndRetrieveCode = async (codeToFetch: string) => {
         setRetrieveError("");
         setRetrievedContent("");
+        setRetrievedCreatedAt(null);
         setIsRetrieving(true);
 
         try {
-            const response = await fetch(`http://localhost:5000/api/messages/${encodeURIComponent(codeToFetch)}`);
+            const response = await fetch(`${getApiBaseUrl()}/api/messages/${encodeURIComponent(codeToFetch)}`);
             const result: { success?: boolean; error?: string; data?: { message: string; type: string; created_at: string } } = await response.json();
 
             if (!response.ok || !result.data) {
-                throw new Error(result.error || "Message not found");
+                throw new Error(result.error || "Message not found or expired");
             }
 
             setRetrievedContent(result.data.message);
             setRetrievedType(result.data.type);
+            setRetrievedCreatedAt(result.data.created_at || null);
         } catch (error) {
             setRetrieveError(error instanceof Error ? error.message : "Failed to retrieve content");
         } finally {
@@ -69,10 +77,18 @@ function Hero() {
 
     const handleRetrieve = async () => {
         if (!retrieveCode.trim()) {
-            alert("Please enter a code to retrieve content");
+            alert("Please enter a 7-digit code to retrieve content");
             return;
         }
         await fetchAndRetrieveCode(retrieveCode.trim());
+    };
+
+    const handleClearRetrieve = () => {
+        setRetrieveCode("");
+        setRetrievedContent("");
+        setRetrievedType("");
+        setRetrievedCreatedAt(null);
+        setRetrieveError("");
     };
 
     // Handle Save Option Click
@@ -81,7 +97,7 @@ function Hero() {
         setIsSending(true);
 
         try {
-            const response = await fetch("http://localhost:5000/api/messages", {
+            const response = await fetch(`${getApiBaseUrl()}/api/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: content, type }),
@@ -135,6 +151,17 @@ function Hero() {
         setQrCode("");
         setStep("typing");
         setRequestError("");
+    };
+
+    const getRemainingMinutes = (createdAtStr: string | null): string | null => {
+        if (!createdAtStr) return null;
+        const createdDate = new Date(createdAtStr).getTime();
+        const expiresDate = createdDate + 30 * 60 * 1000;
+        const now = Date.now();
+        const diffMs = expiresDate - now;
+        if (diffMs <= 0) return "Expired";
+        const mins = Math.ceil(diffMs / (60 * 1000));
+        return `Expires in ~${mins}m`;
     };
 
     return (
@@ -280,42 +307,97 @@ function Hero() {
                     <div className="panel-icon">Retrieve</div>
 
                     <p className="panel-description">
-                        Retrieve shared content
+                        {retrievedContent ? "Retrieved Content" : "Retrieve shared content"}
                     </p>
 
                     <div className="panel-content-wrapper w-full flex flex-col items-center mt-2 flex-1 max-w-md">
-                        <input
-                            type="text"
-                            value={retrieveCode}
-                            onChange={(e: ChangeEvent<HTMLInputElement>) => setRetrieveCode(e.target.value)}
-                            placeholder="Enter 7-digit code (e.g. 0123456)"
-                            className="panel-input w-full mt-2 p-2.5 sm:p-3 rounded-xl text-center tracking-widest font-mono text-sm sm:text-lg focus:outline-none"
-                        />
 
-                        <button
-                            onClick={(e) => { e.stopPropagation(); handleRetrieve(); }}
-                            disabled={isRetrieving}
-                            className="panel-button button-retrieve mt-3 px-5 py-2 cursor-pointer text-xs sm:text-base"
-                        >
-                            {isRetrieving ? "Retrieving..." : "Retrieve"}
-                        </button>
+                        {/* BEFORE RETRIEVAL: 7-Digit Code Input Box & Retrieve Button */}
+                        {!retrievedContent && (
+                            <>
+                                <div className="flex items-center w-full gap-1.5 mt-2">
+                                    <input
+                                        type="text"
+                                        maxLength={7}
+                                        value={retrieveCode}
+                                        onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                handleRetrieve();
+                                            }
+                                        }}
+                                        onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                                            const cleaned = e.target.value.replace(/[^0-9]/g, "");
+                                            setRetrieveCode(cleaned);
+                                        }}
+                                        placeholder="Enter 7-digit code (e.g. 0123456)"
+                                        className="panel-input w-full p-2.5 sm:p-3 rounded-xl text-center tracking-widest font-mono text-sm sm:text-lg focus:outline-none"
+                                    />
+                                    {retrieveCode && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleClearRetrieve(); }}
+                                            className="text-xs font-bold text-slate-600 hover:text-slate-900 px-2 py-1 cursor-pointer"
+                                            title="Clear code"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
 
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleRetrieve(); }}
+                                    disabled={isRetrieving}
+                                    className="panel-button button-retrieve mt-3 px-6 py-2.5 cursor-pointer text-xs sm:text-base w-full sm:w-auto"
+                                >
+                                    {isRetrieving ? "Retrieving..." : "Retrieve Content"}
+                                </button>
+                            </>
+                        )}
+
+                        {/* AFTER RETRIEVAL: Heading with 7-digit code + Content Box + Outside Reset Button */}
                         {retrievedContent && (
-                            <div className="retrieved-result mt-3 p-3 w-full bg-slate-900 text-slate-100 rounded-xl border-2 border-slate-800 text-left shadow-md flex flex-col gap-1.5">
-                                <div className="flex items-center justify-between border-b border-slate-700 pb-1">
-                                    <span className="text-[10px] uppercase font-extrabold text-emerald-400 tracking-wider">
-                                        {retrievedType} Message
+                            <div className="retrieved-container mt-1 w-full flex flex-col items-center gap-2">
+                                {/* Heading showing 7-digit code and message type */}
+                                <div className="retrieved-heading flex flex-col items-center text-center">
+                                    <span className="text-[11px] uppercase font-extrabold text-slate-700 tracking-wider">
+                                        {retrievedType === "temporary" ? "⚡ Temporary Message" : "🔒 Permanent Message"}
                                     </span>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); copyToClipboard(retrievedContent, "retrieved"); }}
-                                        className="panel-button bg-emerald-400 hover:bg-emerald-500 text-slate-900 text-xs px-2 py-0.5 transition-all cursor-pointer"
-                                    >
-                                        {copiedRetrieved ? "Copied!" : "Copy"}
-                                    </button>
+                                    <span className="text-lg sm:text-xl font-mono font-black text-slate-900 tracking-widest mt-0.5">
+                                        Code: {retrieveCode}
+                                    </span>
+                                    {retrievedType === "temporary" && retrievedCreatedAt && (
+                                        <span className="text-xs text-rose-600 font-mono font-bold">
+                                            {getRemainingMinutes(retrievedCreatedAt)}
+                                        </span>
+                                    )}
                                 </div>
-                                <div className="whitespace-pre-wrap break-words font-mono text-xs sm:text-sm leading-relaxed max-h-48 overflow-y-auto pr-1">
-                                    {retrievedContent}
+
+                                {/* Content Box */}
+                                <div className="retrieved-result p-3 w-full bg-slate-900 text-slate-100 rounded-xl border-2 border-slate-800 text-left shadow-md flex flex-col gap-1.5">
+                                    <div className="flex items-center justify-between border-b border-slate-700 pb-1">
+                                        <span className="text-[10px] text-slate-400 font-mono">
+                                            {retrievedContent.length} chars
+                                        </span>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); copyToClipboard(retrievedContent, "retrieved"); }}
+                                            className="panel-button bg-emerald-400 hover:bg-emerald-500 text-slate-900 text-xs px-2.5 py-0.5 transition-all cursor-pointer"
+                                        >
+                                            {copiedRetrieved ? "Copied!" : "Copy Content"}
+                                        </button>
+                                    </div>
+
+                                    <div className="whitespace-pre-wrap break-words font-mono text-xs sm:text-sm leading-relaxed max-h-48 overflow-y-auto pr-1 text-slate-200">
+                                        {retrievedContent}
+                                    </div>
                                 </div>
+
+                                {/* Reset button OUTSIDE the content box to return to start */}
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleClearRetrieve(); }}
+                                    className="panel-button bg-slate-200 hover:bg-slate-300 text-slate-900 text-xs px-3.5 py-1.5 mt-1 cursor-pointer font-bold"
+                                >
+                                    Clear & Retrieve Another
+                                </button>
                             </div>
                         )}
 
