@@ -5,8 +5,14 @@ type SaveType = "temporary" | "permanent";
 type ShareStep = "typing" | "choice" | "success";
 
 const getApiBaseUrl = (): string => {
-    const hostname = window.location.hostname || "localhost";
-    return `http://${hostname}:5000`;
+    if (typeof window !== "undefined") {
+        const { hostname, protocol } = window.location;
+        if (protocol === "https:" || (hostname !== "localhost" && hostname !== "127.0.0.1" && !hostname.startsWith("192.168.") && !hostname.startsWith("10."))) {
+            return "";
+        }
+        return `http://${hostname}:5000`;
+    }
+    return "";
 };
 
 function Hero() {
