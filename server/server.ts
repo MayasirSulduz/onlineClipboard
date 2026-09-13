@@ -276,6 +276,7 @@ const startServer = async () => {
         await ensureMessagesTable();
         await cleanupExpiredMessages();
         // Run cleanup every 1 minute (60,000 ms)
+        //code
         setInterval(cleanupExpiredMessages, 60 * 1000);
     } catch (error) {
         console.error("Database setup failed:", error);
