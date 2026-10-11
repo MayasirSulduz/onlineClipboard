@@ -3,12 +3,22 @@ import cors from "cors";
 import dns from "node:dns";
 import dotenv from "dotenv";
 import express, { type Request, type Response } from "express";
+import net from "node:net";
 import { randomInt, randomUUID } from "node:crypto";
 import os from "node:os";
 import { Pool } from "pg";
 import QRCode from "qrcode";
+import {
+    S3Client,
+    PutObjectCommand,
+    DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 dns.setDefaultResultOrder("ipv4first");
+if (typeof net.setDefaultAutoSelectFamily === "function") {
+    net.setDefaultAutoSelectFamily(false);
+}
 
 dotenv.config();
 
@@ -16,10 +26,17 @@ const app = express();
 const PORT = 5000;
 
 type SaveType = "temporary" | "permanent";
+type ContentType = "text" | "file";
 
 interface MessageRequestBody {
     message?: unknown;
     type?: unknown;
+    contentType?: unknown;
+    fileUrl?: unknown;
+    fileName?: unknown;
+    fileSize?: unknown;
+    fileKey?: unknown;
+    mimeType?: unknown;
 }
 
 const getLocalNetworkIp = (): string => {
@@ -53,6 +70,26 @@ pool.on("error", (err) => {
     console.error("Unexpected error on idle database client:", err);
 });
 
+// Cloudflare R2 Client Initialization
+const r2AccountId = process.env.R2_ACCOUNT_ID;
+const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
+const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+const r2BucketName = process.env.R2_BUCKET_NAME;
+const r2PublicUrl = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
+
+const s3Client = (r2AccountId && r2AccessKeyId && r2SecretAccessKey)
+    ? new S3Client({
+        region: "auto",
+        endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
+        credentials: {
+            accessKeyId: r2AccessKeyId,
+            secretAccessKey: r2SecretAccessKey,
+        },
+    })
+    : null;
+
+console.log("Cloudflare R2 configured:", Boolean(s3Client && r2BucketName && r2PublicUrl));
+
 const queryWithRetry = async (text: string, params: any[] = [], retries = 4, delayMs = 500): Promise<any> => {
     let lastError: any;
     for (let attempt = 1; attempt <= retries; attempt += 1) {
@@ -85,11 +122,27 @@ const ensureMessagesTable = async (): Promise<void> => {
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 code VARCHAR(7) NOT NULL UNIQUE,
                 type VARCHAR(20) NOT NULL,
-                message TEXT NOT NULL,
+                message TEXT,
+                content_type VARCHAR(20) NOT NULL DEFAULT 'text',
+                file_url TEXT,
+                file_name VARCHAR(255),
+                file_size BIGINT,
+                file_key TEXT,
+                mime_type VARCHAR(100),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         `);
-        console.log("messages table is ready.");
+
+        // Migration columns for existing instances
+        await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS content_type VARCHAR(20) NOT NULL DEFAULT 'text'");
+        await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_url TEXT");
+        await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_name VARCHAR(255)");
+        await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_size BIGINT");
+        await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_key TEXT");
+        await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100)");
+        await queryWithRetry("ALTER TABLE messages ALTER COLUMN message DROP NOT NULL");
+
+        console.log("messages table schema is ready.");
     } catch (error) {
         console.error("Error checking/creating messages table:", error);
     }
@@ -97,6 +150,30 @@ const ensureMessagesTable = async (): Promise<void> => {
 
 const cleanupExpiredMessages = async (): Promise<void> => {
     try {
+        // Delete temporary files from Cloudflare R2
+        const expiredFiles = await queryWithRetry(`
+            SELECT file_key FROM messages
+            WHERE type = 'temporary'
+              AND content_type = 'file'
+              AND file_key IS NOT NULL
+              AND created_at < NOW() - INTERVAL '30 minutes'
+        `);
+
+        if (s3Client && r2BucketName && expiredFiles.rows && expiredFiles.rows.length > 0) {
+            for (const row of expiredFiles.rows) {
+                try {
+                    await s3Client.send(new DeleteObjectCommand({
+                        Bucket: r2BucketName,
+                        Key: row.file_key,
+                    }));
+                    console.log(`[CLEANUP] Deleted file from R2: ${row.file_key}`);
+                } catch (delErr) {
+                    console.error(`[CLEANUP] Failed to delete R2 file: ${row.file_key}`, delErr);
+                }
+            }
+        }
+
+        // Delete temporary records from PostgreSQL
         const result = await queryWithRetry(`
             DELETE FROM messages
             WHERE type = 'temporary'
@@ -139,6 +216,56 @@ app.get("/", (req, res) => {
     res.send("Online Clipboard backend is running!");
 });
 
+// Endpoint: Generate Presigned Upload URL for direct R2 upload (supports up to 200MB)
+app.post("/api/upload-url", async (req: Request, res: Response) => {
+    try {
+        if (!s3Client || !r2BucketName || !r2PublicUrl) {
+            res.status(500).json({ success: false, error: "Cloudflare R2 is not configured on server" });
+            return;
+        }
+
+        const { fileName, fileType, fileSize } = req.body;
+
+        if (!fileName || typeof fileName !== "string") {
+            res.status(400).json({ success: false, error: "fileName is required" });
+            return;
+        }
+
+        const maxBytes = 200 * 1024 * 1024; // 200MB limit
+        if (typeof fileSize === "number" && fileSize > maxBytes) {
+            res.status(400).json({ success: false, error: "File exceeds 200MB limit" });
+            return;
+        }
+
+        const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const fileKey = `uploads/${randomUUID()}-${sanitizedName}`;
+
+        const command = new PutObjectCommand({
+            Bucket: r2BucketName,
+            Key: fileKey,
+            ContentType: fileType || "application/octet-stream",
+        });
+
+        // URL expires in 15 minutes
+        const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
+        const publicFileUrl = `${r2PublicUrl}/${fileKey}`;
+
+        res.status(200).json({
+            success: true,
+            uploadUrl,
+            fileKey,
+            publicFileUrl,
+        });
+    } catch (error) {
+        console.error("Failed to generate upload URL:", error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to generate upload URL",
+        });
+    }
+});
+
+// Endpoint: Retrieve message/file by 7-digit code
 app.get("/api/messages/:code", async (req: Request<{ code: string }>, res: Response) => {
     const { code } = req.params;
 
@@ -147,7 +274,12 @@ app.get("/api/messages/:code", async (req: Request<{ code: string }>, res: Respo
             throw new Error("DATABASE_URL is not configured in .env file");
         }
 
-        const result = await queryWithRetry("SELECT id, code, type, message, created_at FROM messages WHERE code = $1 LIMIT 1", [code]);
+        const result = await queryWithRetry(`
+            SELECT id, code, type, message, content_type, file_url, file_name, file_size, file_key, mime_type, created_at
+            FROM messages
+            WHERE code = $1
+            LIMIT 1
+        `, [code]);
 
         if (result.rows.length === 0) {
             res.status(404).json({ success: false, error: "Message not found" });
@@ -164,16 +296,33 @@ app.get("/api/messages/:code", async (req: Request<{ code: string }>, res: Respo
     }
 });
 
+// Endpoint: Save message or file metadata to PostgreSQL
 app.post(
     "/api/messages",
     async (req: Request<{}, {}, MessageRequestBody>, res: Response) => {
-        const { message, type } = req.body;
+        const {
+            message,
+            type,
+            contentType,
+            fileUrl,
+            fileName,
+            fileSize,
+            fileKey,
+            mimeType,
+        } = req.body;
 
-        console.log("Received message from frontend:", { message, type });
+        const resolvedContentType: ContentType = contentType === "file" ? "file" : "text";
 
-        if (typeof message !== "string" || !message.trim()) {
-            res.status(400).json({ success: false, error: "Message is required" });
-            return;
+        if (resolvedContentType === "text") {
+            if (typeof message !== "string" || !message.trim()) {
+                res.status(400).json({ success: false, error: "Message is required for text clips" });
+                return;
+            }
+        } else if (resolvedContentType === "file") {
+            if (!fileUrl || typeof fileUrl !== "string") {
+                res.status(400).json({ success: false, error: "fileUrl is required for file clips" });
+                return;
+            }
         }
 
         if (type !== "temporary" && type !== "permanent") {
@@ -187,24 +336,47 @@ app.post(
             }
 
             const saveType: SaveType = type;
-            console.log("Generating unique seven-digit code...");
             const code = await generateUniqueCode();
-
-            console.log("Final code generated:", code);
-            console.log("Saving message to DB...");
-
             const newId = randomUUID();
             const now = new Date();
 
+            const finalMessage = typeof message === "string" ? message : null;
+            const finalFileUrl = typeof fileUrl === "string" ? fileUrl : null;
+            const finalFileName = typeof fileName === "string" ? fileName : null;
+            const finalFileSize = typeof fileSize === "number" ? fileSize : null;
+            const finalFileKey = typeof fileKey === "string" ? fileKey : null;
+            const finalMimeType = typeof mimeType === "string" ? mimeType : null;
+
             await queryWithRetry(
                 `
-                    INSERT INTO messages (id, code, type, message, created_at)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO messages (
+                        id, code, type, message, content_type,
+                        file_url, file_name, file_size, file_key, mime_type, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 `,
-                [newId, code, saveType, message, now]
+                [
+                    newId,
+                    code,
+                    saveType,
+                    finalMessage,
+                    resolvedContentType,
+                    finalFileUrl,
+                    finalFileName,
+                    finalFileSize,
+                    finalFileKey,
+                    finalMimeType,
+                    now,
+                ]
             );
 
-            console.log("Saved to DB successfully:", { id: newId, code, type: saveType });
+            console.log("Saved to DB successfully:", {
+                id: newId,
+                code,
+                type: saveType,
+                contentType: resolvedContentType,
+                fileName: finalFileName,
+            });
 
             const originHeader = req.get("origin") || req.get("referer");
             let baseUrl = process.env.CLIENT_URL || "";
@@ -239,13 +411,11 @@ app.post(
 
             res.status(200).json({
                 success: true,
-                message: "Message received",
+                message: "Saved successfully",
                 code,
                 shareUrl,
                 qrCode,
             });
-
-            console.log("Sent code, shareUrl, and qrCode to frontend:", { code, shareUrl });
         } catch (error) {
             console.error("Failed to create share:", error);
             const errorMessage = error instanceof Error ? error.message : "Failed to save share";
@@ -276,7 +446,6 @@ const startServer = async () => {
         await ensureMessagesTable();
         await cleanupExpiredMessages();
         // Run cleanup every 1 minute (60,000 ms)
-        //code
         setInterval(cleanupExpiredMessages, 60 * 1000);
     } catch (error) {
         console.error("Database setup failed:", error);
