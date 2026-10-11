@@ -221,9 +221,18 @@ function Hero() {
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleOptionClick("temporary"); }}
                                     disabled={isSending}
-                                    className="panel-button button-temporary w-full sm:w-3/4 px-3 py-2 cursor-pointer text-xs sm:text-base"
+                                    className="panel-button button-temporary w-full sm:w-3/4 px-3 py-2 cursor-pointer text-xs sm:text-base flex items-center justify-center gap-1.5 flex-wrap"
                                 >
-                                    {isSending ? "Saving..." : "Temporary Share"}
+                                    {isSending ? (
+                                        "Saving..."
+                                    ) : (
+                                        <>
+                                            <span>Temporary Save</span>
+                                            <span className="text-[10px] sm:text-xs bg-slate-900/15 text-slate-900 px-1.5 py-0.5 rounded-md font-black tracking-wide">
+                                                30 min
+                                            </span>
+                                        </>
+                                    )}
                                 </button>
 
                                 <button
