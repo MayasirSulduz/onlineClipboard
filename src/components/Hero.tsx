@@ -65,6 +65,7 @@ function Hero() {
     const [retrievedCreatedAt, setRetrievedCreatedAt] = useState<string | null>(null);
     const [retrieveError, setRetrieveError] = useState("");
     const [isRetrieving, setIsRetrieving] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
 
     // Auto-retrieve code from URL parameter on initial load
     useEffect(() => {
@@ -186,6 +187,31 @@ function Hero() {
         setRetrieveError("");
     };
 
+    const handleDownloadFile = async (e: React.MouseEvent, url: string, fileName: string) => {
+        e.stopPropagation();
+        if (!url) return;
+        setIsDownloading(true);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Network response was not ok");
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = blobUrl;
+            link.download = fileName || "download";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (err) {
+            console.error("Blob download failed, opening directly:", err);
+            window.open(url, "_blank");
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
     // Handle Save Option Click
     const handleOptionClick = async (type: SaveType) => {
         setRequestError("");
@@ -259,11 +285,15 @@ function Hero() {
             }
 
             // Step 3: Save metadata to PostgreSQL & generate 7-digit code
-            const saveBody = fileUploadPayload || {
-                contentType: "text",
-                message: content,
-                type,
-            };
+            const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+            const saveBody = fileUploadPayload
+                ? { ...fileUploadPayload, clientOrigin: currentOrigin }
+                : {
+                    contentType: "text",
+                    message: content,
+                    type,
+                    clientOrigin: currentOrigin,
+                };
 
             const response = await fetch(`${getApiBaseUrl()}/api/messages`, {
                 method: "POST",
@@ -281,7 +311,10 @@ function Hero() {
                 throw new Error("The server did not return a share code");
             }
 
-            const constructedUrl = result.shareUrl || `${window.location.origin}/?code=${result.code}`;
+            let constructedUrl = result.shareUrl || `${currentOrigin}/?code=${result.code}`;
+            if (typeof window !== "undefined" && window.location.protocol === "https:" && constructedUrl.startsWith("http://")) {
+                constructedUrl = constructedUrl.replace(/^http:\/\//i, "https://");
+            }
 
             setShareCode(result.code);
             setShareUrl(constructedUrl);
@@ -702,15 +735,17 @@ function Hero() {
 
                                         {/* Prominent Download Button */}
                                         {retrievedFileUrl && (
-                                            <a
-                                                href={retrievedFileUrl}
-                                                download={retrievedFileName || true}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="panel-button bg-emerald-400 hover:bg-emerald-500 text-slate-900 text-xs sm:text-sm font-black py-2 px-3 rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer text-center no-underline"
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleDownloadFile(e, retrievedFileUrl, retrievedFileName || "file")}
+                                                disabled={isDownloading}
+                                                className="panel-button bg-emerald-400 hover:bg-emerald-500 text-slate-900 text-xs sm:text-sm font-black py-2.5 px-3 rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer text-center w-full"
                                             >
-                                                <span>⬇</span> Download File ({formatFileSize(retrievedFileSize)})
-                                            </a>
+                                                <span>⬇</span>
+                                                {isDownloading
+                                                    ? "Downloading to disk..."
+                                                    : `Download File (${formatFileSize(retrievedFileSize)})`}
+                                            </button>
                                         )}
                                     </div>
                                 )}

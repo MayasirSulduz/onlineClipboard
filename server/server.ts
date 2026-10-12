@@ -37,6 +37,7 @@ interface MessageRequestBody {
     fileSize?: unknown;
     fileKey?: unknown;
     mimeType?: unknown;
+    clientOrigin?: unknown;
 }
 
 const getLocalNetworkIp = (): string => {
@@ -378,14 +379,18 @@ app.post(
                 fileName: finalFileName,
             });
 
-            const originHeader = req.get("origin") || req.get("referer");
+            const clientOrigin = typeof req.body.clientOrigin === "string" ? req.body.clientOrigin : "";
+            const originHeader = clientOrigin || req.get("origin") || req.get("referer");
+            const forwardedProto = req.get("x-forwarded-proto") || (req.secure ? "https" : "");
+            const forwardedHost = req.get("x-forwarded-host") || req.get("host");
+
             let baseUrl = process.env.CLIENT_URL || "";
             if (!baseUrl) {
-                const localIp = getLocalNetworkIp();
                 if (originHeader) {
                     try {
                         const urlObj = new URL(originHeader);
                         if (urlObj.hostname === "localhost" || urlObj.hostname === "127.0.0.1") {
+                            const localIp = getLocalNetworkIp();
                             if (localIp !== "localhost") {
                                 urlObj.hostname = localIp;
                             }
@@ -394,7 +399,11 @@ app.post(
                     } catch {
                         baseUrl = originHeader.replace(/\/$/, "");
                     }
+                } else if (forwardedHost && !forwardedHost.includes("localhost") && !forwardedHost.includes("127.0.0.1")) {
+                    const proto = forwardedProto || "https";
+                    baseUrl = `${proto}://${forwardedHost}`;
                 } else {
+                    const localIp = getLocalNetworkIp();
                     baseUrl = `http://${localIp}:5173`;
                 }
             }
