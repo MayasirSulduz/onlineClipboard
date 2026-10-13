@@ -28,6 +28,14 @@ const PORT = 5000;
 type SaveType = "temporary" | "permanent";
 type ContentType = "text" | "file";
 
+interface FileEntry {
+    fileUrl: string;
+    fileName: string;
+    fileSize: number;
+    fileKey: string;
+    mimeType: string;
+}
+
 interface MessageRequestBody {
     message?: unknown;
     type?: unknown;
@@ -37,6 +45,7 @@ interface MessageRequestBody {
     fileSize?: unknown;
     fileKey?: unknown;
     mimeType?: unknown;
+    files?: unknown; // multi-file array
     clientOrigin?: unknown;
 }
 
@@ -130,6 +139,7 @@ const ensureMessagesTable = async (): Promise<void> => {
                 file_size BIGINT,
                 file_key TEXT,
                 mime_type VARCHAR(100),
+                files JSONB,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         `);
@@ -141,6 +151,7 @@ const ensureMessagesTable = async (): Promise<void> => {
         await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_size BIGINT");
         await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_key TEXT");
         await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS mime_type VARCHAR(100)");
+        await queryWithRetry("ALTER TABLE messages ADD COLUMN IF NOT EXISTS files JSONB");
         await queryWithRetry("ALTER TABLE messages ALTER COLUMN message DROP NOT NULL");
 
         console.log("messages table schema is ready.");
@@ -153,23 +164,29 @@ const cleanupExpiredMessages = async (): Promise<void> => {
     try {
         // Delete temporary files from Cloudflare R2
         const expiredFiles = await queryWithRetry(`
-            SELECT file_key FROM messages
+            SELECT file_key, files FROM messages
             WHERE type = 'temporary'
               AND content_type = 'file'
-              AND file_key IS NOT NULL
               AND created_at < NOW() - INTERVAL '30 minutes'
         `);
 
         if (s3Client && r2BucketName && expiredFiles.rows && expiredFiles.rows.length > 0) {
             for (const row of expiredFiles.rows) {
-                try {
-                    await s3Client.send(new DeleteObjectCommand({
-                        Bucket: r2BucketName,
-                        Key: row.file_key,
-                    }));
-                    console.log(`[CLEANUP] Deleted file from R2: ${row.file_key}`);
-                } catch (delErr) {
-                    console.error(`[CLEANUP] Failed to delete R2 file: ${row.file_key}`, delErr);
+                // Collect all file keys: single file_key + multi files array
+                const keysToDelete: string[] = [];
+                if (row.file_key) keysToDelete.push(row.file_key);
+                if (Array.isArray(row.files)) {
+                    for (const f of row.files) {
+                        if (f?.fileKey) keysToDelete.push(f.fileKey);
+                    }
+                }
+                for (const key of keysToDelete) {
+                    try {
+                        await s3Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: key }));
+                        console.log(`[CLEANUP] Deleted file from R2: ${key}`);
+                    } catch (delErr) {
+                        console.error(`[CLEANUP] Failed to delete R2 file: ${key}`, delErr);
+                    }
                 }
             }
         }
@@ -276,7 +293,7 @@ app.get("/api/messages/:code", async (req: Request<{ code: string }>, res: Respo
         }
 
         const result = await queryWithRetry(`
-            SELECT id, code, type, message, content_type, file_url, file_name, file_size, file_key, mime_type, created_at
+            SELECT id, code, type, message, content_type, file_url, file_name, file_size, file_key, mime_type, files, created_at
             FROM messages
             WHERE code = $1
             LIMIT 1
@@ -310,6 +327,7 @@ app.post(
             fileSize,
             fileKey,
             mimeType,
+            files,
         } = req.body;
 
         const resolvedContentType: ContentType = contentType === "file" ? "file" : "text";
@@ -320,8 +338,10 @@ app.post(
                 return;
             }
         } else if (resolvedContentType === "file") {
-            if (!fileUrl || typeof fileUrl !== "string") {
-                res.status(400).json({ success: false, error: "fileUrl is required for file clips" });
+            // Accept either a single fileUrl OR a files array
+            const hasMultiFiles = Array.isArray(files) && files.length > 0;
+            if (!hasMultiFiles && (!fileUrl || typeof fileUrl !== "string")) {
+                res.status(400).json({ success: false, error: "fileUrl or files[] is required for file clips" });
                 return;
             }
         }
@@ -348,13 +368,23 @@ app.post(
             const finalFileKey = typeof fileKey === "string" ? fileKey : null;
             const finalMimeType = typeof mimeType === "string" ? mimeType : null;
 
+            // Validate and sanitize multi-file array
+            const finalFiles: FileEntry[] | null = Array.isArray(files) && files.length > 0
+                ? (files as FileEntry[]).filter(
+                    (f) => typeof f === "object" && f !== null &&
+                           typeof f.fileUrl === "string" &&
+                           typeof f.fileName === "string" &&
+                           typeof f.fileKey === "string"
+                  )
+                : null;
+
             await queryWithRetry(
                 `
                     INSERT INTO messages (
                         id, code, type, message, content_type,
-                        file_url, file_name, file_size, file_key, mime_type, created_at
+                        file_url, file_name, file_size, file_key, mime_type, files, created_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 `,
                 [
                     newId,
@@ -367,6 +397,7 @@ app.post(
                     finalFileSize,
                     finalFileKey,
                     finalMimeType,
+                    finalFiles ? JSON.stringify(finalFiles) : null,
                     now,
                 ]
             );
@@ -377,6 +408,7 @@ app.post(
                 type: saveType,
                 contentType: resolvedContentType,
                 fileName: finalFileName,
+                filesCount: finalFiles?.length ?? 0,
             });
 
             const clientOrigin = typeof req.body.clientOrigin === "string" ? req.body.clientOrigin : "";
